@@ -1,50 +1,116 @@
 # HeadFwd
 
-_Decentralized Remote Access Architecture_
+Zero-knowledge remote access. You own the keys, you own the network.
 
-Headfwd is a universal access pattern for any self-hosted app.
+## What Is This?
 
-### A self-owned, peer-to-peer alternative to cloud-based remote control
+HeadFwd lets you access your self-hosted apps from anywhere using Headscale (self-hosted Tailscale), even if your server is behind NAT/firewall.
 
-Modern “remote access” systems rely on centralized control planes that hold user identity, routing, and often cryptographic material. This design is convenient, but it introduces both privacy risk and central dependency.
+**Problem:** Headscale at home → can't accept inbound connections. Maintaining DDNS and port forwarding sucks.
+**Solution:** Zero-knowledge reverse tunnel (like ngrok, but the proxy can't see your keys or data)
 
-This architecture inverts that model. Every node—laptop, home server, or mobile app—runs within a **Headscale-managed Tailscale mesh**. Coordination is lightweight, self-hosted, and never custodial.
+You now have the best of both worlds; a secure, local control plane AND remote access.
 
----
+## Architecture
 
-## Core Principles
+```
+┌─────────────────┐         Persistent WebSocket            ┌──────────────────┐
+│   Headscale     │════════════════════════════════════════>│  Cloudflare      │
+│   (at home,     │  1. Tunnel opens on startup             │  Durable Object  │
+│    behind NAT)  │                                         │                  │
+└─────────────────┘                                         └──────────────────┘
+                                                                     ▲
+                                                        2. Client    │
+                                                           requests  │
+                                                                     ▼
+                                                            ┌─────────────────┐
+                                                            │  Client (iOS)   │
+                                                            │  HTTP requests  │
+                                                            └─────────────────┘
+```
 
-- **User-Owned Keys:**  
-  All encryption keys live _only_ on user devices. No control plane ever sees or stores them.  
-  Even initial trust can be bootstrapped physically (e.g. scanning a QR code with the Headscale pubkey fingerprint).
+1. Headscale sidecar opens persistent WebSocket to proxy
+2. Clients make HTTP requests to `https://<fingerprint>.headfwd.net`
+3. Proxy forwards through tunnel to Headscale
+4. WireGuard mesh established, then direct P2P
 
-- **Minimal Cloud Involvement:**  
-  Public servers provide only **routing and connection assistance**:
+## Components
 
-  - STUN for NAT traversal
-  - DERP for relay fallback
-  - Optional DNS-style routing via `headfwd.net` (e.g. `<pubkey>.headfwd.net`)
+- **`headfwd-proxy/`** - Cloudflare Workers + Durable Objects proxy
+- **`headfwd-sidecar/`** - Go sidecar that runs with Headscale
+- **`tailscale-ios-integration-plan.md`** - iOS app integration guide
 
-  These servers see no payloads, credentials, or keys—only encrypted transport metadata.
+## Quick Start
 
-- **End-to-End P2P Traffic:**  
-  Once connected, all data flows directly between peers over encrypted WireGuard tunnels orchestrated by Headscale.
+### 1. Deploy Proxy (Cloudflare)
 
----
+```bash
+cd headfwd-proxy
+npx wrangler login
+npx wrangler kv namespace create REGISTRY
+# Update wrangler.jsonc with KV ID
+npm run deploy
+```
 
-## Example: Self-Hosted Photo Library (Immich)
+### 2. Run Headscale + Sidecar
 
-1. A user runs an **Immich photo server** on a home or cloud-hosted machine, bundling a self-hosted Headscale instance.
-2. Their phone and Apple TV clients join the same mesh using the Headscale pubkey fingerprint (verified via QR scan).
-3. Photo uploads, browsing, and streaming all flow through the P2P mesh—fully encrypted, device-to-device.
-4. The public internet is involved only for lightweight routing help (STUN/DERP/bootstrap), never for handling media or credentials.
+```bash
+cd headfwd
+docker compose up -d
 
----
+# Register with proxy
+curl -X POST https://headfwd.net/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"pubkey": "YOUR_HEADSCALE_PUBKEY"}'
 
-## Why This Matters
+# Returns: { "tunnelUrl": "wss://abc123.headfwd.net/tunnel?auth=secret", ... }
 
-This model enables **sovereign networking**—a system where devices connect securely and privately without outsourcing identity or data paths.  
-It’s remote access without the “remote” cloud.  
-Simple, auditable, and owned by the user.
+# Start sidecar
+cd headfwd-sidecar
+go build
+./headfwd-sidecar --tunnel "wss://abc123.headfwd.net/tunnel?auth=secret"
+```
 
----
+### 3. Update Headscale Config
+
+```yaml
+# headscale/config/config.yaml
+server_url: https://abc123...xyz.headfwd.net
+```
+
+### 4. Connect Clients
+
+Clients connect to `https://abc123.headfwd.net` instead of direct IP.
+
+## Cost
+
+- **Free tier:** 100+ Headscale instances
+- **At scale:** $0.10/user/month (1000 users)
+- Hibernating WebSockets = only charged when active
+
+## Security
+
+- Zero-knowledge proxy (sees only encrypted traffic)
+- Headscale validates all keys
+- End-to-end WireGuard encryption
+- Sidecar authenticates with secret
+
+## vs Alternatives
+
+| Solution          | NAT | Setup   | Cost             |
+| ----------------- | --- | ------- | ---------------- |
+| **HeadFwd**       | ✅  | QR code | Free-$10/mo      |
+| Port forward      | ❌  | Complex | $0               |
+| ngrok             | ✅  | Easy    | $8/mo each       |
+| Cloudflare Tunnel | ✅  | Medium  | Free (locked in) |
+
+## Next Steps
+
+See `tailscale-ios-integration-plan.md` for iOS app development.
+
+## References
+
+- [Headscale](https://headscale.net/)
+- [Tailscale](https://tailscale.com/)
+- [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)
+- Inspired by [headfwd-agent](https://github.com/headfwd/headfwd-agent)

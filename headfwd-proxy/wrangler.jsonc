@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "headfwd-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-25",
+  "compatibility_flags": ["nodejs_compat"],
+  
+  "observability": {
+    "enabled": true
+  },
+  
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TUNNELS",
+        "class_name": "HeadscaleTunnel",
+        "script_name": "headfwd-proxy"
+      }
+    ]
+  },
+  
+  // "kv_namespaces": [
+  //   {
+  //     "binding": "REGISTRY",
+  //     "id": "YOUR_KV_ID"
+  //   }
+  // ],
+  
+  "vars": {
+    "TUNNEL_SECRET": "dev-secret-change-in-production"
+  }
+}

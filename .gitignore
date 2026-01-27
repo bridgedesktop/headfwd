@@ -1,0 +1,15 @@
+# Headscale data
+headscale/data/
+headscale/config/private.key
+headscale/config/noise_private.key
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+*.tmp
+
