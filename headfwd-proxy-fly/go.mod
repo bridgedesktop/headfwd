@@ -1,4 +1,4 @@
-module github.com/headfwd/sidecar
+module github.com/headfwd/proxyfly
 
 go 1.25
 
